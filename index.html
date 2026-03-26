@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sinais Forex</title>
+</head>
+<body>
+  <h1>Sinais de Forex (Demo)</h1>
+  <p id="signal">Carregando...</p>
+
+  <script>
+    async function getSignal() {
+      const res = await fetch("https://api.twelvedata.com/time_series?symbol=EUR/USD&interval=1min&apikey=SUA_API_KEY");
+      const data = await res.json();
+
+      let prices = data.values.map(v => parseFloat(v.close));
+      let last = prices[0];
+      let prev = prices[1];
+
+      let signal = last > prev ? "📈 COMPRA" : "📉 VENDA";
+      document.getElementById("signal").innerText = signal;
+    }
+
+    getSignal();
+  </script>
+</body>
+</html>
