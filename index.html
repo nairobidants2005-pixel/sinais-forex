@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Sinais Forex Multi-Pares</title>
+<title>Sinais Forex Completo</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   body { font-family: Arial; background:#121212; color:#fff; text-align:center; }
@@ -10,10 +10,12 @@
   #signal { font-size:28px; margin:20px 0; padding:10px; border-radius:5px; display:inline-block; }
   #chart { max-width:90%; margin:0 auto; }
   select { padding:5px 10px; font-size:16px; margin-top:10px; }
+  #timer { font-size:18px; margin-top:10px; color:#fff; }
 </style>
 </head>
 <body>
-<h1>Sinais Forex Multi-Pares</h1>
+<h1>Sinais Forex Completo</h1>
+
 <select id="pairSelect">
   <option value="EUR/USD">EUR/USD</option>
   <option value="GBP/USD">GBP/USD</option>
@@ -21,32 +23,53 @@
   <option value="AUD/USD">AUD/USD</option>
   <option value="USD/CHF">USD/CHF</option>
 </select>
+
+<p id="timer">Próxima atualização em: 60s</p>
 <p id="signal">Carregando sinais...</p>
 <canvas id="chart" width="600" height="300"></canvas>
 
 <script>
-const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e"; // Coloque sua chave da API aqui
-let chart;
+// ---------- CONFIGURAÇÃO ----------
+const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";        // Substitua pela sua API da Twelve Data
+const TELEGRAM_TOKEN = "8706007658:AAFOO5z6FmPMXq4tXa6F6Ybj83KCeH1iowk
+"; // Substitua pelo token do seu bot
+const CHAT_ID = "7279659759";             // Substitua pelo seu chat ID
+const INTERVAL = 60000;                     // 60 segundos
+let chart, countdown = INTERVAL/1000;      // contagem regressiva em segundos
+
 const pairSelect = document.getElementById("pairSelect");
+const timerElem = document.getElementById("timer");
+const signalElem = document.getElementById("signal");
 
-pairSelect.addEventListener("change", ()=>update(pairSelect.value));
+// ---------- FUNÇÕES TELEGRAM ----------
+function sendTelegramAlert(message){
+  if(!TELEGRAM_TOKEN || !CHAT_ID) return;
+  fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({chat_id: CHAT_ID, text: message})
+  });
+}
 
+// ---------- FUNÇÕES DE DADOS ----------
 async function fetchPrices(symbol){
   const res = await fetch(`https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=50&apikey=${API_KEY}`);
   const data = await res.json();
   return data.values.map(v=>parseFloat(v.close)).reverse();
 }
 
-// Indicadores
+// SMA
 function SMA(prices, period=10){
   return prices.map((v,i,arr)=>i<period-1 ? null : arr.slice(i-period+1,i+1).reduce((a,b)=>a+b,0)/period);
 }
+// EMA
 function EMA(prices, period=10){
   const k = 2/(period+1);
   let ema=[prices[0]];
   for(let i=1;i<prices.length;i++) ema.push(prices[i]*k + ema[i-1]*(1-k));
   return ema;
 }
+// RSI
 function RSI(prices, period=14){
   let gains=[], losses=[];
   for(let i=1;i<prices.length;i++){
@@ -64,6 +87,7 @@ function RSI(prices, period=14){
   }
   return rsi;
 }
+// MACD
 function MACD(prices, shortPeriod=12,longPeriod=26,signalPeriod=9){
   const emaShort=EMA(prices,shortPeriod);
   const emaLong=EMA(prices,longPeriod);
@@ -72,7 +96,7 @@ function MACD(prices, shortPeriod=12,longPeriod=26,signalPeriod=9){
   return {macdLine, signalLine};
 }
 
-// Sinal
+// ---------- FUNÇÃO DE SINAL ----------
 function generateSignal(prices){
   const ema=EMA(prices,10);
   const sma=SMA(prices,10).filter(v=>v!==null);
@@ -90,16 +114,23 @@ function generateSignal(prices){
   return signal;
 }
 
-// Atualiza sinais e gráfico
+// ---------- FUNÇÃO DE ATUALIZAÇÃO ----------
 async function update(symbol=pairSelect.value){
   const prices = await fetchPrices(symbol);
   const signal = generateSignal(prices);
-  const signalElem=document.getElementById("signal");
-  signalElem.innerText=signal;
-  if(signal.includes("COMPRA")) { signalElem.style.backgroundColor="green"; alert("📈 COMPRA!"); }
-  else if(signal.includes("VENDA")) { signalElem.style.backgroundColor="red"; alert("📉 VENDA!"); }
+
+  // Atualiza sinal e cor
+  signalElem.innerText = signal;
+  if(signal.includes("COMPRA")) signalElem.style.backgroundColor="green";
+  else if(signal.includes("VENDA")) signalElem.style.backgroundColor="red";
   else signalElem.style.backgroundColor="yellow";
 
+  // Envia alerta Telegram
+  if(signal.includes("COMPRA") || signal.includes("VENDA")){
+    sendTelegramAlert(signal + " no par " + symbol);
+  }
+
+  // Atualiza gráfico
   if(chart) chart.destroy();
   chart = new Chart(document.getElementById("chart"),{
     type:'line',
@@ -112,11 +143,20 @@ async function update(symbol=pairSelect.value){
       ]
     }
   });
+
+  countdown = INTERVAL/1000; // reinicia cronômetro
 }
 
-// Atualização inicial e repetida
+// ---------- CRONÔMETRO ----------
+setInterval(()=>{
+  countdown--;
+  if(countdown<0) countdown = INTERVAL/1000;
+  timerElem.innerText = `Próxima atualização em: ${countdown}s`;
+},1000);
+
+// ---------- INICIALIZAÇÃO ----------
 update();
-setInterval(()=>update(pairSelect.value),60000);
+setInterval(()=>update(pairSelect.value), INTERVAL);
 </script>
 </body>
 </html>
