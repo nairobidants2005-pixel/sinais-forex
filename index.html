@@ -33,38 +33,15 @@ body{
 
 <script>
 
-// 🔑 CONFIGURE AQUI
-const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
-const BOT_TOKEN = "8706007658:AAFOO5z6FmPMXq4tXa6F6Ybj83KCeH1iowk";
-const CHAT_ID = "7279659759";
-
 // 🔥 PARES
 const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
 
 let lastSignals = {};
 
-// ===== TELEGRAM =====
-for(const symbol of pairs){
-  const chartDiv = document.createElement("div");
-  chartDiv.id = "chart-" + symbol.replace("/","");
-  chartDiv.style.width="90%";
-  chartDiv.style.maxWidth="800px";
-  chartDiv.style.height="400px";
-  chartDiv.style.margin="auto";
-  document.getElementById("chart").appendChild(chartDiv);
-
-  const chart = LightweightCharts.createChart(chartDiv,{width:800,height:400});
-  const candleSeries = chart.addCandlestickSeries();
-  const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
-  const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
-
-  // depois use candleSeries.setData(candles) e emaSeries.setData()
-}
-
 // ===== FETCH =====
 async function getCandles(symbol){
   try{
-    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=100&apikey=${API_KEY}`;
+    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=100&apikey=6b5dcef2d9d240088bef2f844e31df7e`;
     const res = await fetch(url);
     const data = await res.json();
     if(!data.values) return [];
@@ -110,11 +87,9 @@ function candleSignal(candles){
   const lowerShadow = last.open<last.close ? last.open-last.low : last.close-last.low;
   const upperShadow = last.close>last.open ? last.high-last.close : last.high-last.open;
 
-  // Martelo de reversão
   if(lowerShadow>2*body && last.close>last.open) return "BUY";
   if(upperShadow>2*body && last.close<last.open) return "SELL";
 
-  // Engolfo
   if(prev.close<prev.open && last.close>last.open && last.close>prev.open && last.open<prev.close) return "BUY";
   if(prev.close>prev.open && last.close<last.open && last.close<prev.open && last.open>prev.close) return "SELL";
 
@@ -169,15 +144,12 @@ async function runBot(){
       const msg = `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5\nHorário: ${timeStr}`;
       logHTML += msg+"<br>";
 
-      // add marker on chart
       candleSeries.setMarkers([{
         time:candles.at(-1).time,
         position:sig==="BUY"?'belowBar':'aboveBar',
         color:sig==="BUY"?'green':'red',
         shape:'arrowUp'
       }]);
-
-      await sendTelegram(msg);
     }else{
       logHTML+=`⏸️ ${symbol}<br>`;
     }
