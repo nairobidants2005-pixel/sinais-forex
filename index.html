@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Bot M5 FUNCIONANDO</title>
+<title>Bot M5 + Telegram</title>
 
 <style>
 body{
@@ -11,40 +11,76 @@ body{
   background:#0f172a;
   color:white;
 }
-#timer{font-size:20px;margin:15px;}
-#signal{
-  font-size:28px;
-  padding:20px;
-  margin:20px;
-  border-radius:10px;
-  background:gray;
+
+h1{ margin-top:20px; }
+
+#timer{
+  font-size:20px;
+  margin:15px;
+}
+
+#log{
+  margin-top:20px;
+  font-size:14px;
+  max-width:400px;
+  margin:auto;
+  text-align:left;
 }
 </style>
 </head>
 
 <body>
 
-<h1>🔥 BOT M5 ATIVO</h1>
+<h1>🔥 BOT M5 + TELEGRAM</h1>
 
 <div id="timer"></div>
-<div id="signal">⏸️ INICIANDO...</div>
+
+<div id="log">Iniciando...</div>
 
 <script>
 
+// 🔑 CONFIGURAÇÕES
 const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
+const BOT_TOKEN = "8706007658:AAFOO5z6FmPMXq4tXa6F6Ybj83KCeH1iowk";
+const CHAT_ID = "7279659759";
+
+// 🔥 PARIDADES
+const pairs = [
+  "EUR/USD","GBP/USD","USD/JPY",
+  "AUD/USD","USD/CAD","EUR/GBP"
+];
+
+// CONTROLE DE SPAM
+let lastSignals = {};
 
 // ===== TIMER =====
 setInterval(()=>{
   const now = new Date();
   document.getElementById("timer").innerText =
-    "Hora: " + now.toLocaleTimeString();
+    "⏱️ " + now.toLocaleTimeString();
 },1000);
 
+// ===== TELEGRAM =====
+async function sendTelegram(msg){
+  try{
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        chat_id: CHAT_ID,
+        text: msg
+      })
+    });
+  }catch(e){
+    console.log("Erro Telegram:", e);
+  }
+}
+
 // ===== FETCH =====
-async function getPrices(){
+async function getPrices(symbol){
   try{
     const res = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=EUR/USD&interval=5min&outputsize=100&apikey=${API_KEY}`
+      `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=100&apikey=${API_KEY}`
     );
     const data = await res.json();
     if(!data.values) return [];
@@ -76,17 +112,16 @@ function RSI(p){
   return 100-100/(1+rs);
 }
 
-// ===== NOVA LÓGICA (MAIS SINAIS) =====
+// ===== SINAL =====
 function signal(p){
 
-  if(p.length < 50) return "AGUARDANDO";
+  if(p.length < 50) return null;
 
   const price = p.at(-1);
   const ema10 = EMA(p,10).at(-1);
   const ema50 = EMA(p,50).at(-1);
   const rsi = RSI(p);
 
-  // 🔥 mais agressivo (gera sinal mesmo)
   if(price > ema50 && rsi > 55){
     return "BUY";
   }
@@ -95,36 +130,44 @@ function signal(p){
     return "SELL";
   }
 
-  return "NEUTRO";
+  return null;
 }
 
-// ===== LOOP =====
+// ===== LOOP PRINCIPAL =====
 setInterval(async ()=>{
 
-  const prices = await getPrices();
+  let logText = "";
 
-  if(prices.length === 0){
-    document.getElementById("signal").innerText = "⚠️ ERRO API";
-    return;
+  for(const symbol of pairs){
+
+    const prices = await getPrices(symbol);
+    if(prices.length === 0) continue;
+
+    const sig = signal(prices);
+
+    if(sig){
+
+      // evitar repetir
+      if(lastSignals[symbol] === sig) continue;
+
+      lastSignals[symbol] = sig;
+
+      const msg =
+        `${sig === "BUY" ? "📈 COMPRA" : "📉 VENDA"} M5\n${symbol}`;
+
+      // mostra na tela
+      logText += msg + "<br>";
+
+      // envia telegram
+      sendTelegram(msg);
+    }
   }
 
-  const sig = signal(prices);
-  const el = document.getElementById("signal");
+  if(logText === "") logText = "⏸️ Aguardando sinais...";
 
-  if(sig==="BUY"){
-    el.innerText="📈 COMPRA";
-    el.style.background="green";
-  }
-  else if(sig==="SELL"){
-    el.innerText="📉 VENDA";
-    el.style.background="red";
-  }
-  else{
-    el.innerText="⏸️ AGUARDANDO";
-    el.style.background="gray";
-  }
+  document.getElementById("log").innerHTML = logText;
 
-},10000);
+},15000);
 
 </script>
 
