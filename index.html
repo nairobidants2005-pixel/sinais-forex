@@ -2,61 +2,47 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>BOT M5 INDICADOR</title>
+<title>BOT M5 SINAIS</title>
 <style>
-body{
-  font-family: Arial;
+body {
+  font-family: Arial, sans-serif;
   background:#0f172a;
   color:white;
   text-align:center;
 }
-#status{margin:20px;font-size:18px;}
-#log{
-  max-width:800px;
-  margin:auto;
-  text-align:left;
-  font-size:14px;
-}
-.chart-container{
-  width:90%;
-  max-width:800px;
-  height:400px;
-  margin:20px auto;
-}
+#status { margin:20px; font-size:18px; }
+#log { max-width:600px; margin:auto; text-align:left; font-size:16px; }
 </style>
 </head>
 <body>
 
-<h1>🔥 BOT M5 INDICADOR</h1>
+<h1>🔥 BOT M5 SINAIS</h1>
 <div id="status">Iniciando...</div>
-<div id="charts"></div>
 <div id="log"></div>
 
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script>
-
 // 🔥 CONFIGURAÇÃO
 const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
 let lastSignals = {};
 
 // ===== FUNÇÃO PARA GERAR CANDLES SIMULADOS =====
-function mockCandles(){
+function generateCandles() {
   const candles = [];
-  let price = 1.10 + Math.random()*0.5; // preço inicial aleatório
+  let price = 1.10 + Math.random()*0.5;
   const now = Math.floor(Date.now()/1000);
-  for(let i=0;i<100;i++){
+  for(let i=0;i<50;i++){
     const open = price;
     const close = open + (Math.random()-0.5)*0.01;
-    const high = Math.max(open,close) + Math.random()*0.005;
-    const low = Math.min(open,close) - Math.random()*0.005;
-    candles.push({time: now - (100-i)*300, open, high, low, close});
+    const high = Math.max(open, close) + Math.random()*0.005;
+    const low = Math.min(open, close) - Math.random()*0.005;
+    candles.push({time: now - (50-i)*300, open, high, low, close});
     price = close;
   }
   return candles;
 }
 
-// ===== EMA =====
-function EMA(prices, n){
+// ===== INDICADORES =====
+function EMA(prices, n) {
   const k = 2/(n+1);
   let e = [prices[0]];
   for(let i=1;i<prices.length;i++){
@@ -65,8 +51,7 @@ function EMA(prices, n){
   return e;
 }
 
-// ===== RSI =====
-function RSI(prices){
+function RSI(prices) {
   if(prices.length<15) return 50;
   let gains=0, losses=0;
   for(let i=prices.length-14;i<prices.length;i++){
@@ -74,104 +59,60 @@ function RSI(prices){
     if(diff>0) gains+=diff;
     else losses-=diff;
   }
-  let rs = gains/(losses||1);
-  return 100-100/(1+rs);
+  const rs = gains / (losses||1);
+  return 100 - 100/(1+rs);
 }
 
-// ===== CANDLE SIGNAL =====
+// ===== SINAIS =====
 function candleSignal(candles){
   const last = candles.at(-1);
   const prev = candles.at(-2);
-
-  const body = Math.abs(last.close-last.open);
+  const body = Math.abs(last.close - last.open);
   const lowerShadow = last.open<last.close ? last.open-last.low : last.close-last.low;
   const upperShadow = last.close>last.open ? last.high-last.close : last.high-last.open;
-
   if(lowerShadow>2*body && last.close>last.open) return "BUY";
   if(upperShadow>2*body && last.close<last.open) return "SELL";
-
   if(prev.close<prev.open && last.close>last.open && last.close>prev.open && last.open<prev.close) return "BUY";
   if(prev.close>prev.open && last.close<last.open && last.close<prev.open && last.open>prev.close) return "SELL";
-
   return null;
 }
 
-// ===== FINAL SIGNAL =====
 function finalSignal(candles){
   const closes = candles.map(c=>c.close);
   const ema50 = EMA(closes,50).at(-1);
   const ema20 = EMA(closes,20).at(-1);
   const price = closes.at(-1);
   const rsi = RSI(closes);
-
   let sig = null;
-
   if(price>ema50 && price>ema20 && rsi>55) sig="BUY";
   if(price<ema50 && price<ema20 && rsi<45) sig="SELL";
-
   const candleSig = candleSignal(candles);
   if(candleSig && candleSig===sig) return sig;
   if(!sig && candleSig) return candleSig;
   return null;
 }
 
-// ===== CRIAR CHARTS PARA CADA PAR =====
-const charts = {};
-const series = {};
-
-const chartsDiv = document.getElementById("charts");
-for(const symbol of pairs){
-  const container = document.createElement("div");
-  container.className = "chart-container";
-  chartsDiv.appendChild(container);
-
-  const chart = LightweightCharts.createChart(container, {width:800,height:400});
-  const candleSeries = chart.addCandlestickSeries();
-  const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
-  const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
-
-  charts[symbol] = chart;
-  series[symbol] = {candleSeries, ema50Series, ema20Series};
-}
-
-// ===== LOOP DO BOT =====
+// ===== LOOP PRINCIPAL =====
 function runBot(){
   document.getElementById("status").innerText = "Rodando...";
   let logHTML = "";
-
-  for(const symbol of pairs){
-    const candles = mockCandles();
-    const closes = candles.map(c=>c.close);
-
-    series[symbol].candleSeries.setData(candles);
-    series[symbol].ema50Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,50)[i]})));
-    series[symbol].ema20Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,20)[i]})));
-
+  pairs.forEach(symbol=>{
+    const candles = generateCandles();
     const sig = finalSignal(candles);
-
+    const timeStr = new Date().toLocaleTimeString();
     if(sig && lastSignals[symbol]!==sig){
-      lastSignals[symbol] = sig;
-      const timeStr = new Date(candles.at(-1).time*1000).toLocaleTimeString();
-      const msg = `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5 - Horário: ${timeStr}`;
-      logHTML += msg+"<br>";
-
-      series[symbol].candleSeries.setMarkers([{
-        time:candles.at(-1).time,
-        position:sig==="BUY"?'belowBar':'aboveBar',
-        color:sig==="BUY"?'green':'red',
-        shape:'arrowUp'
-      }]);
-    }else{
-      logHTML+=`⏸️ ${symbol}<br>`;
+      lastSignals[symbol]=sig;
+      logHTML += `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5 - ${timeStr}<br>`;
+    } else {
+      logHTML += `⏸️ ${symbol} - ${timeStr}<br>`;
     }
-  }
-
+  });
   document.getElementById("log").innerHTML = logHTML;
 }
 
-// roda a cada 15 segundos
-setInterval(runBot,15000);
+// roda a cada 5 segundos
 runBot();
+setInterval(runBot,5000);
 
 </script>
 </body>
