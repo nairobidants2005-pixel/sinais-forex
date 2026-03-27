@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <title>BOT M5 INDICADOR</title>
-
 <style>
 body{
   font-family: Arial;
@@ -13,38 +12,37 @@ body{
 }
 #status{margin:20px;font-size:18px;}
 #log{
-  max-width:600px;
+  max-width:800px;
   margin:auto;
   text-align:left;
   font-size:14px;
 }
-#chart{width:90%; max-width:800px; height:400px; margin:auto;}
+.chart-container{
+  width:90%;
+  max-width:800px;
+  height:400px;
+  margin:20px auto;
+}
 </style>
 </head>
-
 <body>
 
 <h1>🔥 BOT M5 INDICADOR</h1>
 <div id="status">Iniciando...</div>
-<div id="chart"></div>
+<div id="charts"></div>
 <div id="log"></div>
 
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-
 <script>
 
-// 🔑 API_KEY (não usada para mock)
-const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
-
-// 🔥 PARES
+// 🔥 CONFIGURAÇÃO
 const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
-
 let lastSignals = {};
 
-// ===== FUNÇÃO DE MOCK DE CANDLES =====
+// ===== FUNÇÃO PARA GERAR CANDLES SIMULADOS =====
 function mockCandles(){
   const candles = [];
-  let price = 1.10;
+  let price = 1.10 + Math.random()*0.5; // preço inicial aleatório
   const now = Math.floor(Date.now()/1000);
   for(let i=0;i<100;i++){
     const open = price;
@@ -117,13 +115,26 @@ function finalSignal(candles){
   return null;
 }
 
-// ===== INIT CHART =====
-const chart = LightweightCharts.createChart(document.getElementById('chart'),{width:800,height:400});
-const candleSeries = chart.addCandlestickSeries();
-const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
-const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
+// ===== CRIAR CHARTS PARA CADA PAR =====
+const charts = {};
+const series = {};
 
-// ===== LOOP BOT =====
+const chartsDiv = document.getElementById("charts");
+for(const symbol of pairs){
+  const container = document.createElement("div");
+  container.className = "chart-container";
+  chartsDiv.appendChild(container);
+
+  const chart = LightweightCharts.createChart(container, {width:800,height:400});
+  const candleSeries = chart.addCandlestickSeries();
+  const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
+  const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
+
+  charts[symbol] = chart;
+  series[symbol] = {candleSeries, ema50Series, ema20Series};
+}
+
+// ===== LOOP DO BOT =====
 function runBot(){
   document.getElementById("status").innerText = "Rodando...";
   let logHTML = "";
@@ -132,19 +143,19 @@ function runBot(){
     const candles = mockCandles();
     const closes = candles.map(c=>c.close);
 
-    candleSeries.setData(candles);
-    ema50Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,50)[i]})));
-    ema20Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,20)[i]})));
+    series[symbol].candleSeries.setData(candles);
+    series[symbol].ema50Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,50)[i]})));
+    series[symbol].ema20Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,20)[i]})));
 
     const sig = finalSignal(candles);
 
     if(sig && lastSignals[symbol]!==sig){
       lastSignals[symbol] = sig;
       const timeStr = new Date(candles.at(-1).time*1000).toLocaleTimeString();
-      const msg = `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5\nHorário: ${timeStr}`;
+      const msg = `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5 - Horário: ${timeStr}`;
       logHTML += msg+"<br>";
 
-      candleSeries.setMarkers([{
+      series[symbol].candleSeries.setMarkers([{
         time:candles.at(-1).time,
         position:sig==="BUY"?'belowBar':'aboveBar',
         color:sig==="BUY"?'green':'red',
@@ -158,11 +169,10 @@ function runBot(){
   document.getElementById("log").innerHTML = logHTML;
 }
 
-// roda a cada 15s
+// roda a cada 15 segundos
 setInterval(runBot,15000);
 runBot();
 
 </script>
-
 </body>
 </html>
