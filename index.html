@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Bot M5 Seguro</title>
+<title>Bot M5 FUNCIONANDO</title>
 
 <style>
 body{
@@ -11,8 +11,7 @@ body{
   background:#0f172a;
   color:white;
 }
-
-#timer{ font-size:22px; margin:20px; }
+#timer{font-size:20px;margin:15px;}
 #signal{
   font-size:28px;
   padding:20px;
@@ -20,78 +19,43 @@ body{
   border-radius:10px;
   background:gray;
 }
-select{
-  padding:10px;
-  font-size:18px;
-}
 </style>
 </head>
 
 <body>
 
-<h1>📊 BOT M5</h1>
+<h1>🔥 BOT M5 ATIVO</h1>
 
-<div id="timer">Iniciando...</div>
-
-<select id="pair">
-  <option value="EUR/USD">EUR/USD</option>
-  <option value="GBP/USD">GBP/USD</option>
-  <option value="USD/JPY">USD/JPY</option>
-</select>
-
-<div id="signal">⏸️ AGUARDANDO</div>
+<div id="timer"></div>
+<div id="signal">⏸️ INICIANDO...</div>
 
 <script>
 
 const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
 
 // ===== TIMER =====
-function updateTimer(){
-  try{
-    const now = new Date();
-    const sec = now.getSeconds();
-    const min = now.getMinutes();
-
-    const remaining = (5 - (min % 5)) * 60 - sec;
-
-    document.getElementById("timer").innerText =
-      "Próxima vela M5 em: " + remaining + "s";
-  }catch(e){
-    console.log("Erro timer:", e);
-  }
-}
-
-setInterval(updateTimer,1000);
+setInterval(()=>{
+  const now = new Date();
+  document.getElementById("timer").innerText =
+    "Hora: " + now.toLocaleTimeString();
+},1000);
 
 // ===== FETCH =====
-async function getPrices(symbol){
+async function getPrices(){
   try{
-    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=120&apikey=${API_KEY}`;
-
-    const res = await fetch(url);
-
-    if(!res.ok){
-      throw new Error("Erro HTTP: " + res.status);
-    }
-
+    const res = await fetch(
+      `https://api.twelvedata.com/time_series?symbol=EUR/USD&interval=5min&outputsize=100&apikey=${API_KEY}`
+    );
     const data = await res.json();
-
-    if(!data.values){
-      console.log("Erro API:", data);
-      return [];
-    }
-
+    if(!data.values) return [];
     return data.values.map(v=>parseFloat(v.close)).reverse();
-
-  }catch(e){
-    console.log("Erro fetch:", e);
+  }catch{
     return [];
   }
 }
 
 // ===== EMA =====
 function EMA(p,n){
-  if(p.length === 0) return [];
   const k=2/(n+1);
   let e=[p[0]];
   for(let i=1;i<p.length;i++){
@@ -101,90 +65,66 @@ function EMA(p,n){
 }
 
 // ===== RSI =====
-function RSI(p,n=14){
-  if(p.length < n+1) return 50;
-
+function RSI(p){
   let g=0,l=0;
-
-  for(let i=p.length-n;i<p.length;i++){
+  for(let i=p.length-14;i<p.length;i++){
     let d=p[i]-p[i-1];
     if(d>0) g+=d;
     else l-=d;
   }
-
   let rs=g/(l||1);
   return 100-100/(1+rs);
 }
 
-// ===== SINAL =====
+// ===== NOVA LÓGICA (MAIS SINAIS) =====
 function signal(p){
 
-  if(p.length < 60) return null;
+  if(p.length < 50) return "AGUARDANDO";
 
-  const price = p[p.length-1];
-  const ema10 = EMA(p,10);
-  const ema50 = EMA(p,50);
+  const price = p.at(-1);
+  const ema10 = EMA(p,10).at(-1);
+  const ema50 = EMA(p,50).at(-1);
   const rsi = RSI(p);
 
-  if(ema10.length === 0 || ema50.length === 0) return null;
-
-  const trendUp = price > ema50.at(-1);
-  const trendDown = price < ema50.at(-1);
-
-  const pullbackBuy = price <= ema10.at(-1);
-  const pullbackSell = price >= ema10.at(-1);
-
-  if(trendUp && pullbackBuy && rsi > 50){
+  // 🔥 mais agressivo (gera sinal mesmo)
+  if(price > ema50 && rsi > 55){
     return "BUY";
   }
 
-  if(trendDown && pullbackSell && rsi < 50){
+  if(price < ema50 && rsi < 45){
     return "SELL";
   }
 
-  return null;
+  return "NEUTRO";
 }
 
-// ===== UPDATE =====
-async function update(){
+// ===== LOOP =====
+setInterval(async ()=>{
 
-  try{
-    const now = new Date();
-    const sec = now.getSeconds();
-    const min = now.getMinutes();
+  const prices = await getPrices();
 
-    if(min % 5 !== 4 || sec < 50) return;
-
-    const symbol = document.getElementById("pair").value;
-    const prices = await getPrices(symbol);
-
-    if(prices.length < 60){
-      document.getElementById("signal").innerText = "⚠️ SEM DADOS";
-      return;
-    }
-
-    const sig = signal(prices);
-    const el = document.getElementById("signal");
-
-    if(sig==="BUY"){
-      el.innerText="📈 COMPRA M5";
-      el.style.background="green";
-    }
-    else if(sig==="SELL"){
-      el.innerText="📉 VENDA M5";
-      el.style.background="red";
-    }
-    else{
-      el.innerText="⏸️ AGUARDANDO";
-      el.style.background="gray";
-    }
-
-  }catch(e){
-    console.log("Erro update:", e);
+  if(prices.length === 0){
+    document.getElementById("signal").innerText = "⚠️ ERRO API";
+    return;
   }
-}
 
-setInterval(update,1000);
+  const sig = signal(prices);
+  const el = document.getElementById("signal");
+
+  if(sig==="BUY"){
+    el.innerText="📈 COMPRA";
+    el.style.background="green";
+  }
+  else if(sig==="SELL"){
+    el.innerText="📉 VENDA";
+    el.style.background="red";
+  }
+  else{
+    el.innerText="⏸️ AGUARDANDO";
+    el.style.background="gray";
+  }
+
+},10000);
 
 </script>
 
