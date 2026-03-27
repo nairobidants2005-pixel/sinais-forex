@@ -2,75 +2,78 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>BOT M5 DINÂMICO</title>
+<title>BOT M5 PROFISSIONAL</title>
 <style>
-body { font-family: Arial; background:#0f172a; color:white; text-align:center; }
+body { font-family: Arial, sans-serif; background:#0f172a; color:white; text-align:center; }
 #status { margin:20px; font-size:18px; }
 #log { max-width:700px; margin:auto; text-align:left; font-size:16px; }
-.signal { padding:4px; margin:2px 0; border-radius:4px; }
-.buy { background:green; color:white; }
-.sell { background:red; color:white; }
-.pause { background:#555; color:white; }
+.signal { padding:6px; margin:4px 0; border-radius:5px; font-weight:bold; }
+.buy { background:#28a745; color:white; }
+.sell { background:#dc3545; color:white; }
+.pause { background:#6c757d; color:white; }
 </style>
 </head>
 <body>
 
-<h1>🔥 BOT M5 DINÂMICO</h1>
+<h1>🔥 BOT M5 PROFISSIONAL</h1>
 <div id="status">Iniciando...</div>
 <div id="log"></div>
 
 <script>
 // CONFIGURAÇÃO
 const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
-let lastSignals = {};
+let data = {};
 
-// FUNÇÃO DE SIMULAÇÃO DE PREÇOS
-function simulatePrice(previous){
-  // preço sobe ou desce de forma aleatória com tendência
-  const trend = (Math.random()-0.5)*0.002; 
-  const noise = (Math.random()-0.5)*0.001; 
-  return previous*(1 + trend + noise);
+// ===== FUNÇÕES =====
+
+// Simula preço com tendência + volatilidade
+function simulatePrice(prev) {
+  const trend = (Math.random() - 0.5) * 0.002; // tendência
+  const noise = (Math.random() - 0.5) * 0.001; // ruído
+  return prev * (1 + trend + noise);
 }
 
-// NOVA LÓGICA DE SINAIS
-function generateSignal(prices){
+// Gera sinal baseado em momentum e volatilidade
+function generateSignal(prices) {
   const last = prices.at(-1);
-  const prev = prices.at(-3); // olha 3 candles atrás
+  const prev = prices.at(-3) || last;
   const diff = last - prev;
   const vol = Math.max(...prices.slice(-5)) - Math.min(...prices.slice(-5));
   let strength = "Médio";
   if(Math.abs(diff) > 0.004) strength = "Forte";
   if(Math.abs(diff) < 0.001) strength = "Fraco";
 
-  if(diff > vol*0.3) return {type:"BUY", strength};
-  if(diff < -vol*0.3) return {type:"SELL", strength};
+  if(diff > vol * 0.3) return {type:"BUY", strength};
+  if(diff < -vol * 0.3) return {type:"SELL", strength};
   return {type:"PAUSE", strength};
 }
 
-// LOOP DO BOT
-function runBot(){
+// ===== LOOP PRINCIPAL =====
+function runBot() {
   document.getElementById("status").innerText = "Rodando...";
   let logHTML = "";
-  pairs.forEach(symbol=>{
-    if(!lastSignals[symbol]) lastSignals[symbol] = {prices:[1.10 + Math.random()*0.5]};
-    const prices = lastSignals[symbol].prices;
+
+  pairs.forEach(symbol => {
+    if(!data[symbol]) data[symbol] = {prices:[1.10 + Math.random()*0.5]};
+    const prices = data[symbol].prices;
+
     const newPrice = simulatePrice(prices.at(-1));
     prices.push(newPrice);
-    if(prices.length>50) prices.shift();
+    if(prices.length > 50) prices.shift();
 
     const sig = generateSignal(prices);
-    lastSignals[symbol].signal = sig;
+    data[symbol].signal = sig;
 
     const timeStr = new Date().toLocaleTimeString();
-    let cls = sig.type.toLowerCase();
-    logHTML += `<div class="signal ${cls}">${sig.type} ${symbol} [Força: ${sig.strength}] - ${timeStr}</div>`;
+    logHTML += `<div class="signal ${sig.type.toLowerCase()}">${sig.type} ${symbol} [Força: ${sig.strength}] - ${timeStr}</div>`;
   });
+
   document.getElementById("log").innerHTML = logHTML;
 }
 
-// roda a cada 5s
+// ===== EXECUÇÃO =====
 runBot();
-setInterval(runBot,5000);
+setInterval(runBot, 5000);
 </script>
 </body>
 </html>
