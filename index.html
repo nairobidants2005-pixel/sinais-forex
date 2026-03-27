@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>BOT M5 FINAL</title>
+<title>BOT M5 INDICADOR</title>
 
 <style>
 body{
@@ -13,19 +13,23 @@ body{
 }
 #status{margin:20px;font-size:18px;}
 #log{
-  max-width:400px;
+  max-width:600px;
   margin:auto;
   text-align:left;
   font-size:14px;
 }
+#chart{width:90%; max-width:800px; height:400px; margin:auto;}
 </style>
 </head>
 
 <body>
 
-<h1>🔥 BOT M5 ONLINE</h1>
+<h1>🔥 BOT M5 INDICADOR</h1>
 <div id="status">Iniciando...</div>
+<div id="chart"></div>
 <div id="log"></div>
+
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 
 <script>
 
@@ -43,129 +47,142 @@ let lastSignals = {};
 async function sendTelegram(msg){
   try{
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-
     const res = await fetch(url,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        chat_id: CHAT_ID,
-        text: msg
-      })
+      body: JSON.stringify({chat_id: CHAT_ID, text: msg})
     });
-
     const data = await res.json();
-
-    if(!data.ok){
-      console.log("Erro Telegram:", data);
-    }
-
-  }catch(e){
-    console.log("Erro envio:", e);
-  }
+    if(!data.ok) console.log("Erro Telegram:", data);
+  }catch(e){console.log("Erro envio:", e);}
 }
 
 // ===== FETCH =====
-async function getPrices(symbol){
+async function getCandles(symbol){
   try{
-    const url =
-      `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=100&apikey=${API_KEY}`;
-
+    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=100&apikey=${API_KEY}`;
     const res = await fetch(url);
     const data = await res.json();
-
     if(!data.values) return [];
-
-    return data.values.map(v=>parseFloat(v.close)).reverse();
-
-  }catch{
-    return [];
-  }
+    return data.values.reverse().map(v=>({
+      time: new Date(v.datetime).getTime()/1000,
+      open: parseFloat(v.open),
+      high: parseFloat(v.high),
+      low: parseFloat(v.low),
+      close: parseFloat(v.close)
+    }));
+  }catch{return [];}
 }
 
 // ===== EMA =====
-function EMA(p,n){
-  const k=2/(n+1);
-  let e=[p[0]];
-  for(let i=1;i<p.length;i++){
-    e.push(p[i]*k + e[i-1]*(1-k));
+function EMA(prices, n){
+  const k = 2/(n+1);
+  let e = [prices[0]];
+  for(let i=1;i<prices.length;i++){
+    e.push(prices[i]*k + e[i-1]*(1-k));
   }
   return e;
 }
 
 // ===== RSI =====
-function RSI(p){
-  let g=0,l=0;
-  for(let i=p.length-14;i<p.length;i++){
-    let d=p[i]-p[i-1];
-    if(d>0) g+=d;
-    else l-=d;
+function RSI(prices){
+  if(prices.length<15) return 50;
+  let gains=0, losses=0;
+  for(let i=prices.length-14;i<prices.length;i++){
+    const diff = prices[i]-prices[i-1];
+    if(diff>0) gains+=diff;
+    else losses-=diff;
   }
-  let rs=g/(l||1);
+  let rs = gains/(losses||1);
   return 100-100/(1+rs);
 }
 
-// ===== SINAL =====
-function signal(p){
+// ===== CANDLE SIGNAL =====
+function candleSignal(candles){
+  const last = candles.at(-1);
+  const prev = candles.at(-2);
 
-  if(p.length < 50) return null;
+  const body = Math.abs(last.close-last.open);
+  const lowerShadow = last.open<last.close ? last.open-last.low : last.close-last.low;
+  const upperShadow = last.close>last.open ? last.high-last.close : last.high-last.open;
 
-  const price = p.at(-1);
-  const ema50 = EMA(p,50).at(-1);
-  const rsi = RSI(p);
+  // Martelo de reversão
+  if(lowerShadow>2*body && last.close>last.open) return "BUY";
+  if(upperShadow>2*body && last.close<last.open) return "SELL";
 
-  // 🔥 MAIS FORTE (gera sinal)
-  if(price > ema50 && rsi > 55){
-    return "BUY";
-  }
-
-  if(price < ema50 && rsi < 45){
-    return "SELL";
-  }
+  // Engolfo
+  if(prev.close<prev.open && last.close>last.open && last.close>prev.open && last.open<prev.close) return "BUY";
+  if(prev.close>prev.open && last.close<last.open && last.close<prev.open && last.open>prev.close) return "SELL";
 
   return null;
 }
 
-// ===== LOOP =====
+// ===== FINAL SIGNAL =====
+function finalSignal(candles){
+  const closes = candles.map(c=>c.close);
+  const ema50 = EMA(closes,50).at(-1);
+  const ema20 = EMA(closes,20).at(-1);
+  const price = closes.at(-1);
+  const rsi = RSI(closes);
+
+  let sig = null;
+
+  if(price>ema50 && price>ema20 && rsi>55) sig="BUY";
+  if(price<ema50 && price<ema20 && rsi<45) sig="SELL";
+
+  const candleSig = candleSignal(candles);
+  if(candleSig && candleSig===sig) return sig;
+  if(!sig && candleSig) return candleSig;
+  return null;
+}
+
+// ===== INIT CHART =====
+const chart = LightweightCharts.createChart(document.getElementById('chart'),{width:800,height:400});
+const candleSeries = chart.addCandlestickSeries();
+const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
+const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
+
+// ===== LOOP BOT =====
 async function runBot(){
-
   document.getElementById("status").innerText = "Rodando...";
-
   let logHTML = "";
 
   for(const symbol of pairs){
+    const candles = await getCandles(symbol);
+    if(candles.length<50){logHTML+=`⚠️ ${symbol} sem dados<br>`; continue;}
 
-    const prices = await getPrices(symbol);
+    // plot candles
+    candleSeries.setData(candles);
+    const closes = candles.map(c=>c.close);
+    ema50Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,50)[i]})));
+    ema20Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,20)[i]})));
 
-    if(prices.length < 50){
-      logHTML += `⚠️ ${symbol} sem dados<br>`;
-      continue;
-    }
+    const sig = finalSignal(candles);
 
-    const sig = signal(prices);
-
-    if(sig){
-
-      if(lastSignals[symbol] === sig) continue;
-
+    if(sig && lastSignals[symbol]!==sig){
       lastSignals[symbol] = sig;
+      const timeStr = new Date(candles.at(-1).time*1000).toLocaleTimeString();
+      const msg = `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5\nHorário: ${timeStr}`;
+      logHTML += msg+"<br>";
 
-      const msg =
-        `${sig === "BUY" ? "📈 COMPRA" : "📉 VENDA"} M5\n${symbol}`;
+      // add marker on chart
+      candleSeries.setMarkers([{
+        time:candles.at(-1).time,
+        position:sig==="BUY"?'belowBar':'aboveBar',
+        color:sig==="BUY"?'green':'red',
+        shape:'arrowUp'
+      }]);
 
-      logHTML += msg + "<br>";
-
-      // 🔥 ENVIO GARANTIDO
       await sendTelegram(msg);
-
     }else{
-      logHTML += `⏸️ ${symbol}<br>`;
+      logHTML+=`⏸️ ${symbol}<br>`;
     }
   }
 
   document.getElementById("log").innerHTML = logHTML;
 }
 
-// roda SEMPRE
+// roda sempre
 setInterval(runBot,15000);
 
 </script>
