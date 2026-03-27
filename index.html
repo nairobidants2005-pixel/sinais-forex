@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Bot M5 Profissional</title>
+<title>Bot M5 Seguro</title>
 
 <style>
 body{
@@ -12,37 +12,26 @@ body{
   color:white;
 }
 
-h1{
-  margin-top:20px;
-}
-
-#timer{
-  font-size:22px;
-  margin:20px;
-}
-
+#timer{ font-size:22px; margin:20px; }
 #signal{
   font-size:28px;
   padding:20px;
   margin:20px;
   border-radius:10px;
   background:gray;
-  transition:0.3s;
 }
-
 select{
   padding:10px;
   font-size:18px;
-  border-radius:8px;
 }
 </style>
 </head>
 
 <body>
 
-<h1>📊 BOT M5 AUTOMÁTICO</h1>
+<h1>📊 BOT M5</h1>
 
-<div id="timer">Carregando...</div>
+<div id="timer">Iniciando...</div>
 
 <select id="pair">
   <option value="EUR/USD">EUR/USD</option>
@@ -54,28 +43,36 @@ select{
 
 <script>
 
-// 🔑 COLOQUE SUA API KEY AQUI
 const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
 
 // ===== TIMER =====
 function updateTimer(){
-  const now = new Date();
-  const sec = now.getSeconds();
-  const min = now.getMinutes();
+  try{
+    const now = new Date();
+    const sec = now.getSeconds();
+    const min = now.getMinutes();
 
-  const remaining = (5 - (min % 5)) * 60 - sec;
+    const remaining = (5 - (min % 5)) * 60 - sec;
 
-  document.getElementById("timer").innerText =
-    "Próxima vela M5 em: " + remaining + "s";
+    document.getElementById("timer").innerText =
+      "Próxima vela M5 em: " + remaining + "s";
+  }catch(e){
+    console.log("Erro timer:", e);
+  }
 }
+
 setInterval(updateTimer,1000);
 
-// ===== FETCH DADOS =====
+// ===== FETCH =====
 async function getPrices(symbol){
   try{
-    const res = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=120&apikey=${API_KEY}`
-    );
+    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=120&apikey=${API_KEY}`;
+
+    const res = await fetch(url);
+
+    if(!res.ok){
+      throw new Error("Erro HTTP: " + res.status);
+    }
 
     const data = await res.json();
 
@@ -87,13 +84,14 @@ async function getPrices(symbol){
     return data.values.map(v=>parseFloat(v.close)).reverse();
 
   }catch(e){
-    console.log("Erro:", e);
+    console.log("Erro fetch:", e);
     return [];
   }
 }
 
 // ===== EMA =====
 function EMA(p,n){
+  if(p.length === 0) return [];
   const k=2/(n+1);
   let e=[p[0]];
   for(let i=1;i<p.length;i++){
@@ -128,6 +126,8 @@ function signal(p){
   const ema50 = EMA(p,50);
   const rsi = RSI(p);
 
+  if(ema10.length === 0 || ema50.length === 0) return null;
+
   const trendUp = price > ema50.at(-1);
   const trendDown = price < ema50.at(-1);
 
@@ -148,32 +148,39 @@ function signal(p){
 // ===== UPDATE =====
 async function update(){
 
-  const now = new Date();
-  const sec = now.getSeconds();
-  const min = now.getMinutes();
+  try{
+    const now = new Date();
+    const sec = now.getSeconds();
+    const min = now.getMinutes();
 
-  // executa no final do candle M5
-  if(min % 5 !== 4 || sec < 50) return;
+    if(min % 5 !== 4 || sec < 50) return;
 
-  const symbol = document.getElementById("pair").value;
-  const prices = await getPrices(symbol);
+    const symbol = document.getElementById("pair").value;
+    const prices = await getPrices(symbol);
 
-  if(prices.length < 60) return;
+    if(prices.length < 60){
+      document.getElementById("signal").innerText = "⚠️ SEM DADOS";
+      return;
+    }
 
-  const sig = signal(prices);
-  const el = document.getElementById("signal");
+    const sig = signal(prices);
+    const el = document.getElementById("signal");
 
-  if(sig==="BUY"){
-    el.innerText="📈 COMPRA M5";
-    el.style.background="green";
-  }
-  else if(sig==="SELL"){
-    el.innerText="📉 VENDA M5";
-    el.style.background="red";
-  }
-  else{
-    el.innerText="⏸️ AGUARDANDO";
-    el.style.background="gray";
+    if(sig==="BUY"){
+      el.innerText="📈 COMPRA M5";
+      el.style.background="green";
+    }
+    else if(sig==="SELL"){
+      el.innerText="📉 VENDA M5";
+      el.style.background="red";
+    }
+    else{
+      el.innerText="⏸️ AGUARDANDO";
+      el.style.background="gray";
+    }
+
+  }catch(e){
+    console.log("Erro update:", e);
   }
 }
 
