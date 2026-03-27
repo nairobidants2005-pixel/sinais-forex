@@ -2,118 +2,75 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>BOT M5 SINAIS</title>
+<title>BOT M5 DINÂMICO</title>
 <style>
-body {
-  font-family: Arial, sans-serif;
-  background:#0f172a;
-  color:white;
-  text-align:center;
-}
+body { font-family: Arial; background:#0f172a; color:white; text-align:center; }
 #status { margin:20px; font-size:18px; }
-#log { max-width:600px; margin:auto; text-align:left; font-size:16px; }
+#log { max-width:700px; margin:auto; text-align:left; font-size:16px; }
+.signal { padding:4px; margin:2px 0; border-radius:4px; }
+.buy { background:green; color:white; }
+.sell { background:red; color:white; }
+.pause { background:#555; color:white; }
 </style>
 </head>
 <body>
 
-<h1>🔥 BOT M5 SINAIS</h1>
+<h1>🔥 BOT M5 DINÂMICO</h1>
 <div id="status">Iniciando...</div>
 <div id="log"></div>
 
 <script>
-// 🔥 CONFIGURAÇÃO
+// CONFIGURAÇÃO
 const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
 let lastSignals = {};
 
-// ===== FUNÇÃO PARA GERAR CANDLES SIMULADOS =====
-function generateCandles() {
-  const candles = [];
-  let price = 1.10 + Math.random()*0.5;
-  const now = Math.floor(Date.now()/1000);
-  for(let i=0;i<50;i++){
-    const open = price;
-    const close = open + (Math.random()-0.5)*0.01;
-    const high = Math.max(open, close) + Math.random()*0.005;
-    const low = Math.min(open, close) - Math.random()*0.005;
-    candles.push({time: now - (50-i)*300, open, high, low, close});
-    price = close;
-  }
-  return candles;
+// FUNÇÃO DE SIMULAÇÃO DE PREÇOS
+function simulatePrice(previous){
+  // preço sobe ou desce de forma aleatória com tendência
+  const trend = (Math.random()-0.5)*0.002; 
+  const noise = (Math.random()-0.5)*0.001; 
+  return previous*(1 + trend + noise);
 }
 
-// ===== INDICADORES =====
-function EMA(prices, n) {
-  const k = 2/(n+1);
-  let e = [prices[0]];
-  for(let i=1;i<prices.length;i++){
-    e.push(prices[i]*k + e[i-1]*(1-k));
-  }
-  return e;
+// NOVA LÓGICA DE SINAIS
+function generateSignal(prices){
+  const last = prices.at(-1);
+  const prev = prices.at(-3); // olha 3 candles atrás
+  const diff = last - prev;
+  const vol = Math.max(...prices.slice(-5)) - Math.min(...prices.slice(-5));
+  let strength = "Médio";
+  if(Math.abs(diff) > 0.004) strength = "Forte";
+  if(Math.abs(diff) < 0.001) strength = "Fraco";
+
+  if(diff > vol*0.3) return {type:"BUY", strength};
+  if(diff < -vol*0.3) return {type:"SELL", strength};
+  return {type:"PAUSE", strength};
 }
 
-function RSI(prices) {
-  if(prices.length<15) return 50;
-  let gains=0, losses=0;
-  for(let i=prices.length-14;i<prices.length;i++){
-    const diff = prices[i]-prices[i-1];
-    if(diff>0) gains+=diff;
-    else losses-=diff;
-  }
-  const rs = gains / (losses||1);
-  return 100 - 100/(1+rs);
-}
-
-// ===== SINAIS =====
-function candleSignal(candles){
-  const last = candles.at(-1);
-  const prev = candles.at(-2);
-  const body = Math.abs(last.close - last.open);
-  const lowerShadow = last.open<last.close ? last.open-last.low : last.close-last.low;
-  const upperShadow = last.close>last.open ? last.high-last.close : last.high-last.open;
-  if(lowerShadow>2*body && last.close>last.open) return "BUY";
-  if(upperShadow>2*body && last.close<last.open) return "SELL";
-  if(prev.close<prev.open && last.close>last.open && last.close>prev.open && last.open<prev.close) return "BUY";
-  if(prev.close>prev.open && last.close<last.open && last.close<prev.open && last.open>prev.close) return "SELL";
-  return null;
-}
-
-function finalSignal(candles){
-  const closes = candles.map(c=>c.close);
-  const ema50 = EMA(closes,50).at(-1);
-  const ema20 = EMA(closes,20).at(-1);
-  const price = closes.at(-1);
-  const rsi = RSI(closes);
-  let sig = null;
-  if(price>ema50 && price>ema20 && rsi>55) sig="BUY";
-  if(price<ema50 && price<ema20 && rsi<45) sig="SELL";
-  const candleSig = candleSignal(candles);
-  if(candleSig && candleSig===sig) return sig;
-  if(!sig && candleSig) return candleSig;
-  return null;
-}
-
-// ===== LOOP PRINCIPAL =====
+// LOOP DO BOT
 function runBot(){
   document.getElementById("status").innerText = "Rodando...";
   let logHTML = "";
   pairs.forEach(symbol=>{
-    const candles = generateCandles();
-    const sig = finalSignal(candles);
+    if(!lastSignals[symbol]) lastSignals[symbol] = {prices:[1.10 + Math.random()*0.5]};
+    const prices = lastSignals[symbol].prices;
+    const newPrice = simulatePrice(prices.at(-1));
+    prices.push(newPrice);
+    if(prices.length>50) prices.shift();
+
+    const sig = generateSignal(prices);
+    lastSignals[symbol].signal = sig;
+
     const timeStr = new Date().toLocaleTimeString();
-    if(sig && lastSignals[symbol]!==sig){
-      lastSignals[symbol]=sig;
-      logHTML += `${sig==="BUY"?"📈 COMPRA":"📉 VENDA"} ${symbol} M5 - ${timeStr}<br>`;
-    } else {
-      logHTML += `⏸️ ${symbol} - ${timeStr}<br>`;
-    }
+    let cls = sig.type.toLowerCase();
+    logHTML += `<div class="signal ${cls}">${sig.type} ${symbol} [Força: ${sig.strength}] - ${timeStr}</div>`;
   });
   document.getElementById("log").innerHTML = logHTML;
 }
 
-// roda a cada 5 segundos
+// roda a cada 5s
 runBot();
 setInterval(runBot,5000);
-
 </script>
 </body>
 </html>
