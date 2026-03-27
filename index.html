@@ -1,187 +1,218 @@
-```html
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Sinais Forex Completo</title>
+<title>Forex PRO App</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-body { font-family: Arial; background:#121212; color:#fff; text-align:center; }
-h1 { margin-top:20px; }
-#signal { font-size:28px; margin:20px 0; padding:10px; border-radius:5px; display:inline-block; }
-#chart { max-width:90%; margin:0 auto; }
-select { padding:5px 10px; font-size:16px; margin-top:10px; }
-#timer { font-size:18px; margin-top:10px; color:#fff; }
-</style>
+body {
+  font-family: Arial;
+  background:#020617;
+  color:#fff;
+  text-align:center;
+}
 
+h1 { margin:20px; }
+
+.container {
+  display:grid;
+  grid-template-columns: repeat(4,1fr);
+  gap:10px;
+  max-width:900px;
+  margin:auto;
+}
+
+.card {
+  background:#0f172a;
+  padding:15px;
+  border-radius:10px;
+}
+
+#signal {
+  font-size:26px;
+  margin:20px;
+  padding:10px;
+  border-radius:8px;
+}
+
+#chart { max-width:95%; margin:auto; }
+
+select {
+  padding:8px;
+  margin:10px;
+}
+</style>
 </head>
+
 <body>
 
-<h1>Sinais Forex Completo</h1>
+<h1>📊 Forex PRO App</h1>
 
-<select id="pairSelect">
-<option value="EUR/USD">EUR/USD</option>
-<option value="GBP/USD">GBP/USD</option>
-<option value="USD/JPY">USD/JPY</option>
-<option value="AUD/USD">AUD/USD</option>
-<option value="USD/CHF">USD/CHF</option>
+<select id="pair">
+<option>EUR/USD</option>
+<option>GBP/USD</option>
+<option>USD/JPY</option>
+<option>AUD/USD</option>
+<option>USD/CHF</option>
 </select>
 
-<p id="timer">Próxima atualização em: 60s</p>
-<p id="signal">Carregando sinais...</p>
-<canvas id="chart" width="600" height="300"></canvas>
+<div id="signal">Carregando...</div>
+<p id="timer"></p>
+
+<div class="container">
+  <div class="card">Winrate<br><b id="winrate">0%</b></div>
+  <div class="card">Operações<br><b id="trades">0</b></div>
+  <div class="card">Wins<br><b id="wins">0</b></div>
+  <div class="card">Losses<br><b id="losses">0</b></div>
+</div>
+
+<canvas id="chart" height="300"></canvas>
 
 <script>
 
-// ---------- CONFIGURAÇÃO ----------
+// ===== CONFIG =====
 const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
-const TELEGRAM_TOKEN = "8706007658:AAFOO5z6FmPMXq4tXa6F6Ybj83KCeH1iowk";
-const CHAT_ID = "7279659759";
 
-const INTERVAL = 60000;
-let chart, countdown = INTERVAL/1000;
-let lastSignal = "";
+let chart;
 
-const pairSelect = document.getElementById("pairSelect");
-const timerElem = document.getElementById("timer");
-const signalElem = document.getElementById("signal");
+// ===== TIMER =====
+setInterval(()=>{
+  document.getElementById("timer").innerText =
+    "Próxima vela em: " + (60 - new Date().getSeconds()) + "s";
+},1000);
 
-// ---------- TELEGRAM ----------
-function sendTelegramAlert(message){
-  if(!TELEGRAM_TOKEN || !CHAT_ID) return;
-
-  fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      chat_id: CHAT_ID,
-      text: message
-    })
-  }).catch(err => console.error("Erro Telegram:", err));
+// ===== FETCH =====
+async function getPrices(symbol){
+  const res = await fetch(`https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=150&apikey=${API_KEY}`);
+  const data = await res.json();
+  return data.values.map(v=>parseFloat(v.close)).reverse();
 }
 
-// ---------- DADOS ----------
-async function fetchPrices(symbol){
-  try{
-    const res = await fetch(`https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=50&apikey=${API_KEY}`);
-    const data = await res.json();
+// ===== INDICADORES =====
+function EMA(p,n){
+  const k=2/(n+1);
+  let e=[p[0]];
+  for(let i=1;i<p.length;i++) e.push(p[i]*k + e[i-1]*(1-k));
+  return e;
+}
 
-    if(!data.values) throw new Error("Erro API");
-
-    return data.values.map(v => parseFloat(v.close)).reverse();
-
-  }catch(e){
-    console.error("Erro ao buscar preços:", e);
-    signalElem.innerText = "Erro ao carregar dados";
-    return [];
+function RSI(p,n=14){
+  let g=0,l=0;
+  for(let i=p.length-n;i<p.length;i++){
+    let d=p[i]-p[i-1];
+    if(d>0) g+=d; else l-=d;
   }
+  let rs=g/(l||1);
+  return 100-100/(1+rs);
 }
 
-// ---------- INDICADORES ----------
-function SMA(prices, period=10){
-  return prices.map((v,i,arr)=>
-    i<period-1 ? null :
-    arr.slice(i-period+1,i+1).reduce((a,b)=>a+b,0)/period
-  );
+function MACD(p){
+  let e12=EMA(p,12), e26=EMA(p,26);
+  let macd=e12.map((v,i)=>v-e26[i]);
+  let sig=EMA(macd,9);
+  return {macd,sig};
 }
 
-function EMA(prices, period=10){
-  const k = 2/(period+1);
-  let ema=[prices[0]];
-  for(let i=1;i<prices.length;i++){
-    ema.push(prices[i]*k + ema[i-1]*(1-k));
-  }
-  return ema;
+function BB(p,n=20){
+  let slice=p.slice(-n);
+  let avg=slice.reduce((a,b)=>a+b,0)/n;
+  let std=Math.sqrt(slice.map(x=>(x-avg)**2).reduce((a,b)=>a+b,0)/n);
+  return {up:avg+2*std, low:avg-2*std};
 }
 
-function RSI(prices, period=14){
-  let gains=[], losses=[];
-  for(let i=1;i<prices.length;i++){
-    let diff=prices[i]-prices[i-1];
-    gains.push(diff>0?diff:0);
-    losses.push(diff<0?-diff:0);
-  }
+// ===== SINAL =====
+function signal(p){
 
-  let avgGain=gains.slice(0,period).reduce((a,b)=>a+b,0)/period;
-  let avgLoss=losses.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  const price = p[p.length-1];
+  const ema10 = EMA(p,10);
+  const ema50 = EMA(p,50);
 
-  let rsi=[100 - 100/(1+(avgGain/avgLoss || 1))];
+  const rsi = RSI(p);
 
-  for(let i=period;i<gains.length;i++){
-    avgGain=(avgGain*(period-1)+gains[i])/period;
-    avgLoss=(avgLoss*(period-1)+losses[i])/period;
-    rsi.push(100 - 100/(1+(avgGain/avgLoss || 1)));
-  }
+  const m = MACD(p);
+  const macd = m.macd.slice(-1)[0];
+  const sig = m.sig.slice(-1)[0];
 
-  return rsi;
+  const prevMacd = m.macd.slice(-2)[0];
+  const prevSig = m.sig.slice(-2)[0];
+
+  const bb = BB(p);
+
+  const trendUp = price > ema50[ema50.length-1];
+  const trendDown = price < ema50[ema50.length-1];
+
+  if(trendUp && price < bb.low && rsi < 60 && prevMacd < prevSig && macd > sig)
+    return "BUY";
+
+  if(trendDown && price > bb.up && rsi > 40 && prevMacd > prevSig && macd < sig)
+    return "SELL";
+
+  return null;
 }
 
-function MACD(prices, shortPeriod=12,longPeriod=26,signalPeriod=9){
-  const emaShort=EMA(prices,shortPeriod);
-  const emaLong=EMA(prices,longPeriod);
+// ===== BACKTEST =====
+function backtest(prices){
 
-  const macdLine=emaShort.map((v,i)=>v-emaLong[i]);
-  const signalLine=EMA(macdLine,signalPeriod);
+  let wins=0, losses=0, trades=0;
 
-  return {macdLine, signalLine};
-}
+  for(let i=60;i<prices.length-1;i++){
 
-// ---------- SINAL ----------
-function generateSignal(prices){
+    let slice = prices.slice(0,i);
+    let sig = signal(slice);
 
-  if(prices.length < 30) return "⏳ Sem dados suficientes";
+    if(!sig) continue;
 
-  const ema=EMA(prices,10);
-  const sma=SMA(prices,10).filter(v=>v!==null);
-  const rsi=RSI(prices).slice(-1)[0];
+    trades++;
 
-  const macdObj=MACD(prices);
-  const macd=macdObj.macdLine.slice(-1)[0];
-  const signalLine=macdObj.signalLine.slice(-1)[0];
+    let entry = prices[i];
+    let result = prices[i+1];
 
-  const lastPrice=prices[prices.length-1];
-  const lastSMA=sma[sma.length-1];
-  const lastEMA=ema[ema.length-1];
-
-  let signal="↔️ LATERAL";
-
-  if(lastPrice>lastSMA && lastPrice>lastEMA && rsi<70 && macd>signalLine)
-    signal="📈 COMPRA";
-
-  else if(lastPrice<lastSMA && lastPrice<lastEMA && rsi>30 && macd<signalLine)
-    signal="📉 VENDA";
-
-  return signal;
-}
-
-// ---------- UPDATE ----------
-async function update(symbol=pairSelect.value){
-
-  const prices = await fetchPrices(symbol);
-
-  if(prices.length < 30){
-    signalElem.innerText = "Sem dados suficientes";
-    return;
+    if(sig==="BUY" && result>entry) wins++;
+    else if(sig==="SELL" && result<entry) wins++;
+    else losses++;
   }
 
-  const signal = generateSignal(prices);
+  let winrate = trades ? ((wins/trades)*100).toFixed(1) : 0;
 
-  // UI
-  signalElem.innerText = signal;
+  return {wins,losses,trades,winrate};
+}
 
-  if(signal.includes("COMPRA")) signalElem.style.backgroundColor="green";
-  else if(signal.includes("VENDA")) signalElem.style.backgroundColor="red";
-  else signalElem.style.backgroundColor="gray";
+// ===== UPDATE =====
+async function update(){
 
-  // TELEGRAM (sem spam)
-  if(signal !== lastSignal && (signal.includes("COMPRA") || signal.includes("VENDA"))){
-    sendTelegramAlert(`${signal} no par ${symbol}`);
-    lastSignal = signal;
+  const sec = new Date().getSeconds();
+  if(sec < 58) return;
+
+  const symbol = document.getElementById("pair").value;
+
+  const prices = await getPrices(symbol);
+
+  const sig = signal(prices);
+
+  const el = document.getElementById("signal");
+
+  if(sig==="BUY"){
+    el.innerText="📈 COMPRA";
+    el.style.background="green";
+  } else if(sig==="SELL"){
+    el.innerText="📉 VENDA";
+    el.style.background="red";
+  } else {
+    el.innerText="⏸️ AGUARDANDO";
+    el.style.background="gray";
   }
 
-  // GRÁFICO
+  // BACKTEST
+  const bt = backtest(prices);
+
+  document.getElementById("winrate").innerText = bt.winrate+"%";
+  document.getElementById("wins").innerText = bt.wins;
+  document.getElementById("losses").innerText = bt.losses;
+  document.getElementById("trades").innerText = bt.trades;
+
+  // CHART
   if(chart) chart.destroy();
 
   chart = new Chart(document.getElementById("chart"),{
@@ -189,29 +220,17 @@ async function update(symbol=pairSelect.value){
     data:{
       labels: prices.map((_,i)=>i),
       datasets:[
-        {label:'Preço', data:prices, borderColor:'cyan', fill:false},
-        {label:'SMA10', data:SMA(prices,10), borderColor:'yellow', fill:false},
-        {label:'EMA10', data:EMA(prices,10), borderColor:'magenta', fill:false}
+        {label:'Preço',data:prices,borderColor:'cyan'},
+        {label:'EMA10',data:EMA(prices,10),borderColor:'yellow'},
+        {label:'EMA50',data:EMA(prices,50),borderColor:'orange'}
       ]
     }
   });
-
-  countdown = INTERVAL/1000;
 }
 
-// ---------- TIMER ----------
-setInterval(()=>{
-  countdown--;
-  if(countdown<0) countdown = INTERVAL/1000;
-  timerElem.innerText = `Próxima atualização em: ${countdown}s`;
-},1000);
-
-// ---------- START ----------
-update();
-setInterval(()=>update(pairSelect.value), INTERVAL);
+setInterval(update,1000);
 
 </script>
 
 </body>
 </html>
-```
