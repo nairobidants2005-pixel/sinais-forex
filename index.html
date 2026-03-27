@@ -44,17 +44,21 @@ const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
 let lastSignals = {};
 
 // ===== TELEGRAM =====
-async function sendTelegram(msg){
-  try{
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-    const res = await fetch(url,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({chat_id: CHAT_ID, text: msg})
-    });
-    const data = await res.json();
-    if(!data.ok) console.log("Erro Telegram:", data);
-  }catch(e){console.log("Erro envio:", e);}
+for(const symbol of pairs){
+  const chartDiv = document.createElement("div");
+  chartDiv.id = "chart-" + symbol.replace("/","");
+  chartDiv.style.width="90%";
+  chartDiv.style.maxWidth="800px";
+  chartDiv.style.height="400px";
+  chartDiv.style.margin="auto";
+  document.getElementById("chart").appendChild(chartDiv);
+
+  const chart = LightweightCharts.createChart(chartDiv,{width:800,height:400});
+  const candleSeries = chart.addCandlestickSeries();
+  const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
+  const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
+
+  // depois use candleSeries.setData(candles) e emaSeries.setData()
 }
 
 // ===== FETCH =====
