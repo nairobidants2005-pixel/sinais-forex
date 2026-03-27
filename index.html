@@ -1,91 +1,25 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<title>Forex PRO App</title>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<style>
-body {
-  font-family: Arial;
-  background:#020617;
-  color:#fff;
-  text-align:center;
-}
-
-h1 { margin:20px; }
-
-.container {
-  display:grid;
-  grid-template-columns: repeat(4,1fr);
-  gap:10px;
-  max-width:900px;
-  margin:auto;
-}
-
-.card {
-  background:#0f172a;
-  padding:15px;
-  border-radius:10px;
-}
-
-#signal {
-  font-size:26px;
-  margin:20px;
-  padding:10px;
-  border-radius:8px;
-}
-
-#chart { max-width:95%; margin:auto; }
-
-select {
-  padding:8px;
-  margin:10px;
-}
-</style>
-</head>
-
-<body>
-
-<h1>📊 Forex PRO App</h1>
-
-<select id="pair">
-<option>EUR/USD</option>
-<option>GBP/USD</option>
-<option>USD/JPY</option>
-<option>AUD/USD</option>
-<option>USD/CHF</option>
-</select>
-
-<div id="signal">Carregando...</div>
-<p id="timer"></p>
-
-<div class="container">
-  <div class="card">Winrate<br><b id="winrate">0%</b></div>
-  <div class="card">Operações<br><b id="trades">0</b></div>
-  <div class="card">Wins<br><b id="wins">0</b></div>
-  <div class="card">Losses<br><b id="losses">0</b></div>
-</div>
-
-<canvas id="chart" height="300"></canvas>
-
 <script>
 
-// ===== CONFIG =====
 const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
 
-let chart;
+// ===== TIMER M5 REAL =====
+function updateTimer(){
+  const now = new Date();
+  const sec = now.getSeconds();
+  const min = now.getMinutes();
 
-// ===== TIMER =====
-setInterval(()=>{
+  const remaining = (5 - (min % 5)) * 60 - sec;
+
   document.getElementById("timer").innerText =
-    "Próxima vela em: " + (60 - new Date().getSeconds()) + "s";
-},1000);
+    "Próxima vela M5 em: " + remaining + "s";
+}
+setInterval(updateTimer,1000);
 
-// ===== FETCH =====
+// ===== FETCH M5 =====
 async function getPrices(symbol){
-  const res = await fetch(`https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1min&outputsize=150&apikey=${API_KEY}`);
+  const res = await fetch(
+    `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=120&apikey=${API_KEY}`
+  );
   const data = await res.json();
   return data.values.map(v=>parseFloat(v.close)).reverse();
 }
@@ -94,7 +28,8 @@ async function getPrices(symbol){
 function EMA(p,n){
   const k=2/(n+1);
   let e=[p[0]];
-  for(let i=1;i<p.length;i++) e.push(p[i]*k + e[i-1]*(1-k));
+  for(let i=1;i<p.length;i++)
+    e.push(p[i]*k + e[i-1]*(1-k));
   return e;
 }
 
@@ -102,27 +37,14 @@ function RSI(p,n=14){
   let g=0,l=0;
   for(let i=p.length-n;i<p.length;i++){
     let d=p[i]-p[i-1];
-    if(d>0) g+=d; else l-=d;
+    if(d>0) g+=d;
+    else l-=d;
   }
   let rs=g/(l||1);
   return 100-100/(1+rs);
 }
 
-function MACD(p){
-  let e12=EMA(p,12), e26=EMA(p,26);
-  let macd=e12.map((v,i)=>v-e26[i]);
-  let sig=EMA(macd,9);
-  return {macd,sig};
-}
-
-function BB(p,n=20){
-  let slice=p.slice(-n);
-  let avg=slice.reduce((a,b)=>a+b,0)/n;
-  let std=Math.sqrt(slice.map(x=>(x-avg)**2).reduce((a,b)=>a+b,0)/n);
-  return {up:avg+2*std, low:avg-2*std};
-}
-
-// ===== SINAL =====
+// ===== SINAL PROFISSIONAL =====
 function signal(p){
 
   const price = p[p.length-1];
@@ -131,62 +53,36 @@ function signal(p){
 
   const rsi = RSI(p);
 
-  const m = MACD(p);
-  const macd = m.macd.slice(-1)[0];
-  const sig = m.sig.slice(-1)[0];
+  const trendUp = price > ema50.at(-1);
+  const trendDown = price < ema50.at(-1);
 
-  const prevMacd = m.macd.slice(-2)[0];
-  const prevSig = m.sig.slice(-2)[0];
+  const pullbackBuy = price <= ema10.at(-1);
+  const pullbackSell = price >= ema10.at(-1);
 
-  const bb = BB(p);
-
-  const trendUp = price > ema50[ema50.length-1];
-  const trendDown = price < ema50[ema50.length-1];
-
-  if(trendUp && price < bb.low && rsi < 60 && prevMacd < prevSig && macd > sig)
+  // ===== BUY =====
+  if(trendUp && pullbackBuy && rsi > 50){
     return "BUY";
-
-  if(trendDown && price > bb.up && rsi > 40 && prevMacd > prevSig && macd < sig)
-    return "SELL";
-
-  return null;
-}
-
-// ===== BACKTEST =====
-function backtest(prices){
-
-  let wins=0, losses=0, trades=0;
-
-  for(let i=60;i<prices.length-1;i++){
-
-    let slice = prices.slice(0,i);
-    let sig = signal(slice);
-
-    if(!sig) continue;
-
-    trades++;
-
-    let entry = prices[i];
-    let result = prices[i+1];
-
-    if(sig==="BUY" && result>entry) wins++;
-    else if(sig==="SELL" && result<entry) wins++;
-    else losses++;
   }
 
-  let winrate = trades ? ((wins/trades)*100).toFixed(1) : 0;
+  // ===== SELL =====
+  if(trendDown && pullbackSell && rsi < 50){
+    return "SELL";
+  }
 
-  return {wins,losses,trades,winrate};
+  return null;
 }
 
 // ===== UPDATE =====
 async function update(){
 
-  const sec = new Date().getSeconds();
-  if(sec < 58) return;
+  const now = new Date();
+  const sec = now.getSeconds();
+  const min = now.getMinutes();
+
+  // EXECUTA SOMENTE NO FECHAMENTO M5
+  if((min % 5 !== 4) || sec < 55) return;
 
   const symbol = document.getElementById("pair").value;
-
   const prices = await getPrices(symbol);
 
   const sig = signal(prices);
@@ -194,43 +90,19 @@ async function update(){
   const el = document.getElementById("signal");
 
   if(sig==="BUY"){
-    el.innerText="📈 COMPRA";
+    el.innerText="📈 COMPRA M5";
     el.style.background="green";
-  } else if(sig==="SELL"){
-    el.innerText="📉 VENDA";
+  }
+  else if(sig==="SELL"){
+    el.innerText="📉 VENDA M5";
     el.style.background="red";
-  } else {
+  }
+  else{
     el.innerText="⏸️ AGUARDANDO";
     el.style.background="gray";
   }
-
-  // BACKTEST
-  const bt = backtest(prices);
-
-  document.getElementById("winrate").innerText = bt.winrate+"%";
-  document.getElementById("wins").innerText = bt.wins;
-  document.getElementById("losses").innerText = bt.losses;
-  document.getElementById("trades").innerText = bt.trades;
-
-  // CHART
-  if(chart) chart.destroy();
-
-  chart = new Chart(document.getElementById("chart"),{
-    type:'line',
-    data:{
-      labels: prices.map((_,i)=>i),
-      datasets:[
-        {label:'Preço',data:prices,borderColor:'cyan'},
-        {label:'EMA10',data:EMA(prices,10),borderColor:'yellow'},
-        {label:'EMA50',data:EMA(prices,50),borderColor:'orange'}
-      ]
-    }
-  });
 }
 
 setInterval(update,1000);
 
 </script>
-
-</body>
-</html>
