@@ -33,26 +33,28 @@ body{
 
 <script>
 
+// 🔑 API_KEY (não usada para mock)
+const API_KEY = "6b5dcef2d9d240088bef2f844e31df7e";
+
 // 🔥 PARES
 const pairs = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD"];
 
 let lastSignals = {};
 
-// ===== FETCH =====
-async function getCandles(symbol){
-  try{
-    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=5min&outputsize=100&apikey=6b5dcef2d9d240088bef2f844e31df7e`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if(!data.values) return [];
-    return data.values.reverse().map(v=>({
-      time: new Date(v.datetime).getTime()/1000,
-      open: parseFloat(v.open),
-      high: parseFloat(v.high),
-      low: parseFloat(v.low),
-      close: parseFloat(v.close)
-    }));
-  }catch{return [];}
+// ===== FUNÇÃO DE MOCK DE CANDLES =====
+function mockCandles(){
+  const candles = [];
+  let price = 1.10;
+  const now = Math.floor(Date.now()/1000);
+  for(let i=0;i<100;i++){
+    const open = price;
+    const close = open + (Math.random()-0.5)*0.01;
+    const high = Math.max(open,close) + Math.random()*0.005;
+    const low = Math.min(open,close) - Math.random()*0.005;
+    candles.push({time: now - (100-i)*300, open, high, low, close});
+    price = close;
+  }
+  return candles;
 }
 
 // ===== EMA =====
@@ -122,17 +124,15 @@ const ema50Series = chart.addLineSeries({color:'yellow',lineWidth:2});
 const ema20Series = chart.addLineSeries({color:'orange',lineWidth:2});
 
 // ===== LOOP BOT =====
-async function runBot(){
+function runBot(){
   document.getElementById("status").innerText = "Rodando...";
   let logHTML = "";
 
   for(const symbol of pairs){
-    const candles = await getCandles(symbol);
-    if(candles.length<50){logHTML+=`⚠️ ${symbol} sem dados<br>`; continue;}
-
-    // plot candles
-    candleSeries.setData(candles);
+    const candles = mockCandles();
     const closes = candles.map(c=>c.close);
+
+    candleSeries.setData(candles);
     ema50Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,50)[i]})));
     ema20Series.setData(candles.map((c,i)=>({time:c.time,value:EMA(closes,20)[i]})));
 
@@ -158,8 +158,9 @@ async function runBot(){
   document.getElementById("log").innerHTML = logHTML;
 }
 
-// roda sempre
+// roda a cada 15s
 setInterval(runBot,15000);
+runBot();
 
 </script>
 
